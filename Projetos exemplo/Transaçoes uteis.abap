@@ -205,3 +205,7 @@
 " SU10 Manutenção de usuário em massa
 
 " SE30 – SQL Trace / Análise de Performance do Banco de Dados / Trace de Performance
+
+" SE16N_CD_KEY - Rastrear quem marretado
+
+" SE16N_CD_DATA – Rastrear o que foi marretado
