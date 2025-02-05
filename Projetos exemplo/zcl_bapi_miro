@@ -1,0 +1,127 @@
+METHOD zii_si_bapi_incominginvoice_cr~si_bapi_incominginvoice_create. "#EC CI_FLDEXT_OK[2215424]
+*----------------------------------------------------------------------- "#EC CI_USAGE_OK[2438131]
+* Empresa..: VE
+* ID.......: Glorian X SAP
+* Programa.: ZCL_SI_BAPI_INCOMINGINVOICE_CREATE
+* Tipo.....: Método
+* Módulo...: MM
+* Transação:
+* Descrição: Integração Glorian X SAP
+* Autor....: Fabio Natero Gimenez
+* Data.....: 01/02/2021
+*
+* [HISTÓRICO]
+* ========= ============ ========== ======================================
+* Data Autor Request Descrição
+* ========= ============ ========== ======================================
+* 22.07.21 T3MARIAESA E03K9ADMVF 4055950: VE - Interface Glorian fase 3
+* ========= ============ ========== ======================================
+
+  DATA: w_headerdata          TYPE bapi_incinv_create_header,
+        w_addressdata	        TYPE bapi_incinv_create_addressdata,
+        w_bseg                TYPE bseg, "-> T3MARIAESA - 22.07.21
+        v_invoicestatus       TYPE bapi_incinv_create_status-rbstat,
+        v_invoicedocnumber    TYPE bapi_incinv_fld-inv_doc_no,
+        v_fiscalyear          TYPE bapi_incinv_fld-fisc_year,
+        v_barcode             TYPE brcde, "-> T3MARIAESA - 22.07.21
+        v_esrre	              TYPE esrre, "-> T3MARIAESA - 22.07.21
+        v_esrnr	              TYPE esrnr, "-> T3MARIAESA - 22.07.21
+        v_esrpz	              TYPE esrpz, "-> T3MARIAESA - 22.07.21
+        t_itemdata            TYPE TABLE OF bapi_incinv_create_item,
+        t_accountingdata      TYPE TABLE OF bapi_incinv_create_account,
+        t_glaccountdata	      TYPE TABLE OF	bapi_incinv_create_gl_account,
+        t_materialdata        TYPE TABLE OF bapi_incinv_create_material,
+        t_taxdata	            TYPE TABLE OF	bapi_incinv_create_tax,
+        t_withtaxdata	        TYPE TABLE OF	bapi_incinv_create_withtax,
+        t_vendoritemsplitdata	TYPE TABLE OF	bapi_incinv_create_vendorsplit,
+        t_return              TYPE TABLE OF bapiret2,
+        t_extensionin	        TYPE TABLE OF	bapiparex,
+        t_extensionout        TYPE TABLE OF bapiparex,
+        t_tm_itemdata	        TYPE TABLE OF	bapi_incinv_create_tm_item.
+
+  MOVE-CORRESPONDING input-headerdata TO w_headerdata.
+  MOVE-CORRESPONDING input-addressdata TO w_addressdata.
+  MOVE input-invoicestatus TO v_invoicestatus.
+  MOVE-CORRESPONDING input-itemdata-item TO t_itemdata.
+  MOVE-CORRESPONDING input-accountingdata-item TO t_accountingdata.
+  MOVE-CORRESPONDING input-glaccountdata-item TO t_glaccountdata.
+  MOVE-CORRESPONDING input-materialdata-item TO t_materialdata.
+  MOVE-CORRESPONDING input-taxdata-item TO t_taxdata.
+  MOVE-CORRESPONDING input-withtaxdata-item TO t_withtaxdata.
+  MOVE-CORRESPONDING input-vendoritemsplitdata-item TO t_vendoritemsplitdata.
+  MOVE-CORRESPONDING input-extensionin-item TO t_extensionin.
+  MOVE-CORRESPONDING input-extensionout-item TO t_extensionout.
+  MOVE-CORRESPONDING input-tm_itemdata-item TO t_tm_itemdata.
+
+  CLEAR: output, v_invoicedocnumber, v_fiscalyear.
+
+*-> Inicio da Alteração - T3MARIAESA - 22.07.21
+  IF w_headerdata-pymt_meth EQ sy-abcde+1(1). " B
+
+    v_barcode = VALUE #( t_extensionin[ structure = 'BARCODE' ]-valuepart1 OPTIONAL ).
+    IF NOT v_barcode IS INITIAL .
+
+      CALL FUNCTION 'J_1B_BARCODE_CONVERT'
+        EXPORTING
+          is_bseg    = w_bseg
+          iv_barcode = v_barcode
+        IMPORTING
+          ev_esrre   = v_esrre
+          ev_esrnr   = v_esrnr
+          ev_esrpz   = v_esrpz.
+
+      w_headerdata-po_ref_no = v_esrre.
+      w_headerdata-po_sub_no = v_esrnr.
+      w_headerdata-po_checkdg = v_esrpz.
+
+    ENDIF.
+
+  ENDIF.
+*<- Fim da Alteração - T3MARIAESA - 22.07.21
+
+  CALL FUNCTION 'BAPI_INCOMINGINVOICE_CREATE1' "#EC CI_FLDEXT_OK[2215424]
+    EXPORTING "#EC CI_USAGE_OK[2438131] "#EC CI_USAGE_OK[2438131]
+      headerdata          = w_headerdata
+      addressdata         = w_addressdata
+      invoicestatus       = v_invoicestatus
+    IMPORTING
+      invoicedocnumber    = v_invoicedocnumber
+      fiscalyear          = v_fiscalyear
+    TABLES
+      itemdata            = t_itemdata
+      accountingdata      = t_accountingdata
+      glaccountdata       = t_glaccountdata
+      materialdata        = t_materialdata
+      taxdata             = t_taxdata
+      withtaxdata         = t_withtaxdata
+      vendoritemsplitdata = t_vendoritemsplitdata
+      return              = t_return
+      extensionin         = t_extensionin
+      extensionout        = t_extensionout
+      tm_itemdata         = t_tm_itemdata.
+  READ TABLE t_return WITH KEY type = 'E' TRANSPORTING NO FIELDS.
+
+  IF sy-subrc IS NOT INITIAL.
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = 'X'.
+  ELSE.
+    CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+  ENDIF.
+
+
+  output-invoicedocnumber = v_invoicedocnumber.
+  output-fiscalyear = v_fiscalyear.
+  MOVE-CORRESPONDING t_itemdata TO output-itemdata-item.
+  MOVE-CORRESPONDING t_accountingdata TO output-accountingdata-item.
+  MOVE-CORRESPONDING t_glaccountdata TO output-glaccountdata-item.
+  MOVE-CORRESPONDING t_materialdata TO output-materialdata-item.
+  MOVE-CORRESPONDING t_taxdata TO output-taxdata-item.
+  MOVE-CORRESPONDING t_withtaxdata TO output-withtaxdata-item.
+  MOVE-CORRESPONDING t_vendoritemsplitdata TO output-vendoritemsplitdata-item.
+  MOVE-CORRESPONDING t_return TO output-return-item.
+  MOVE-CORRESPONDING t_extensionin TO output-extensionin-item.
+  MOVE-CORRESPONDING t_extensionout TO output-extensionout-item.
+  MOVE-CORRESPONDING t_tm_itemdata TO output-tm_itemdata-item.
+
+ENDMETHOD.
