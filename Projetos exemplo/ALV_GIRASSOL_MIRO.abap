@@ -22,7 +22,10 @@ TYPES: BEGIN OF y_alv,
          frgke       TYPE ekko-frgke,
          name1       TYPE lfa1-name1,
          bldat       TYPE rbkp-bldat,
+         xblnr       TYPE xblnr1,
+         zlsch       TYPE t042z-zlsch,
          icon_status TYPE ze_status_icon_miro,
+         ind_aprov   TYPE ze_status_aprov_miro,
        END OF y_alv,
 
        BEGIN OF y_alv_display, " Type para visualização dos campos do alv
@@ -31,15 +34,11 @@ TYPES: BEGIN OF y_alv,
          bukrs       TYPE ekko-bukrs,
          lifnr       TYPE ekko-lifnr,
          name1       TYPE lfa1-name1,
+         ind_aprov   TYPE ze_status_aprov_miro,
          bldat       TYPE rbkp-bldat,
-         zbd1t       TYPE ekko-zbd1t,
-         matnr       TYPE ekpo-matnr,
-         netpr       TYPE ekpo-netpr,
-         werks       TYPE ekpo-werks,
-         kostl       TYPE ekkn-kostl,
-         netwr       TYPE ekkn-netwr,
-         mwskz       TYPE ekpo-mwskz,
          frgke       TYPE ekko-frgke,
+         xblnr       TYPE xblnr1,
+         zlsch       TYPE t042z-zlsch,
        END OF y_alv_display,
 
        BEGIN OF y_dados_bapi_miro,
@@ -105,12 +104,10 @@ CONSTANTS: c_icon_liberado(4)  TYPE c      VALUE '@08@',
            c_ernam_senior      TYPE string VALUE 'SENIOR',
            c_text_periodo      TYPE string VALUE 'Período:',
            c_text_relatorio    TYPE string VALUE 'Pedidos de Compras Sênior'.
+
 *----------------------------------------------------------------------*
-
-START-OF-SELECTION.
-
-  PERFORM zf_seleciona_dados.
-  PERFORM zf_display_alv.
+* Classes Locais                                                       *
+*----------------------------------------------------------------------*
 
 CLASS lcl_alv_handler DEFINITION.
   PUBLIC SECTION.
@@ -133,7 +130,7 @@ CLASS lcl_message_handler DEFINITION.
           iv_type     TYPE bapi_mtype    " Tipo da mensagem (E, W, I, S)
           iv_message  TYPE string        " Texto da mensagem
         CHANGING
-          ct_messages TYPE bapiret2_tab. " Tabela de mensagens para exibição
+          ct_messages TYPE bapiret2_tab. " Tabela de mensagens
 ENDCLASS.
 
 CLASS lcl_message_handler IMPLEMENTATION.
@@ -164,9 +161,6 @@ CLASS lcl_events DEFINITION.
         IMPORTING row column.
 ENDCLASS.
 
-*&------------------------------------------------------------------*
-*& Implementação do evento de click no ALV SM2                      *
-*&------------------------------------------------------------------*
 CLASS lcl_events IMPLEMENTATION.
   METHOD on_link_click.
 
@@ -178,37 +172,75 @@ CLASS lcl_events IMPLEMENTATION.
 
   ENDMETHOD.
 ENDCLASS.
+
+*----------------------------------------------------------------------*
+* Selection Screen                                                     *
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+
+  SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+
+  SELECT-OPTIONS: s_ebeln FOR ekko-ebeln  OBLIGATORY,
+                  s_dcreat FOR ekko-aedat OBLIGATORY.
+
+  PARAMETERS: p_closed RADIOBUTTON GROUP 1,
+              p_pend   RADIOBUTTON GROUP 1,
+              p_all_po RADIOBUTTON GROUP 1.
+
+  SELECTION-SCREEN END OF BLOCK b1.
+
+  PERFORM zf_seleciona_dados USING s_ebeln
+                                   s_dcreat.
+  PERFORM zf_display_alv.
+
 *---------------------------------------------------------------------*
 *      Form  zf_seleciona_dados
 *---------------------------------------------------------------------*
 *      Seleção de Dados para ALV
 *---------------------------------------------------------------------*
-FORM zf_seleciona_dados.
+FORM zf_seleciona_dados USING p_ebeln      LIKE s_ebeln
+                              p_aedat      LIKE s_dcreat.
 
-  SELECT ekko~ebeln, ekko~bukrs, ekko~lifnr, ekko~zbd1t,
-  ekpo~matnr, ekpo~netpr, ekpo~werks, ekkn~kostl,
-  ekkn~netwr, ekpo~mwskz, ekko~frgke, lfa1~name1
-  INTO TABLE @lt_alv
+  SELECT *
+  INTO CORRESPONDING FIELDS OF TABLE @lt_alv
   FROM ekko
   INNER JOIN ekpo ON ekko~ebeln = ekpo~ebeln
   INNER JOIN ekkn ON ekpo~ebeln = ekkn~ebeln
-   LEFT JOIN lfa1 ON ekko~lifnr = lfa1~lifnr
-  WHERE ekko~ernam = @c_ernam_senior.
+  LEFT JOIN lfa1 ON ekko~lifnr = lfa1~lifnr
+  WHERE ekko~ernam = @c_ernam_senior
+  AND ekko~ebeln EQ @p_ebeln
+  AND ekko~aedat EQ @p_aedat.
 
-  LOOP AT lt_alv ASSIGNING FIELD-SYMBOL(<fs_alv>).
-    <fs_alv>-icon_status = SWITCH #(
-    <fs_alv>-frgke
-    WHEN 'B' THEN c_icon_bloqueado
-    WHEN 'G' OR 'R' THEN c_icon_liberado
-    ELSE c_icon_undefined ).
-  ENDLOOP.
-
-  " Loop para ordernar as colunas conforme necessário pelo type y_alv_display
   LOOP AT lt_alv INTO DATA(ls_alv).
-    DATA(ls_alv_display) = CORRESPONDING y_alv_display( ls_alv ).
-    APPEND ls_alv_display TO lt_alv_display.
+
+    ls_alv-icon_status = SWITCH #( ls_alv-frgke
+                                    WHEN 'B'        THEN c_icon_bloqueado
+                                    WHEN 'G' OR 'R' THEN c_icon_liberado
+                                    ELSE c_icon_undefined ).
+
+    ls_alv-ind_aprov = SWITCH #( ls_alv-frgke
+                                  WHEN 'B'        THEN 'X'
+                                  WHEN 'G' OR 'R' THEN 'OK'
+                                  ELSE '' ).
+
+    MODIFY lt_alv FROM ls_alv.
   ENDLOOP.
+
+  " Ordenando Colunas para visualização
+  lt_alv_display = CORRESPONDING #( lt_alv ).
+
 ENDFORM.
+
+*---------------------------------------------------------------------*
+*      Form  zf_fcat_config
+*---------------------------------------------------------------------*
+*      Configuração ALV
+*---------------------------------------------------------------------*
+FORM zf_fcat_config.
+  v_o_display = v_o_table->get_display_settings( ).
+  v_o_display->set_list_header( 'Relatório Pedidos Sênior x MIRO' ).
+ENDFORM.
+
 *---------------------------------------------------------------------*
 *      Form  zf_display_alv
 *---------------------------------------------------------------------*
@@ -240,7 +272,19 @@ FORM zf_display_alv.
       lo_column->set_visible( abap_false ).
 
       TRY .
-          v_o_column ?= v_o_columns->get_column( 'BUKRS' ).
+          v_o_column ?= v_o_columns->get_column( 'BLDAT' ).
+        CATCH cx_salv_not_found.
+      ENDTRY.
+      v_o_column->set_cell_type( if_salv_c_cell_type=>hotspot ).
+
+      TRY .
+          v_o_column ?= v_o_columns->get_column( 'ZLSCH' ).
+        CATCH cx_salv_not_found.
+      ENDTRY.
+      v_o_column->set_cell_type( if_salv_c_cell_type=>hotspot ).
+
+      TRY .
+          v_o_column ?= v_o_columns->get_column( 'XBLNR' ).
         CATCH cx_salv_not_found.
       ENDTRY.
       v_o_column->set_cell_type( if_salv_c_cell_type=>hotspot ).
@@ -258,7 +302,7 @@ FORM zf_display_alv.
 
       CREATE OBJECT gr_event_handler.
       SET HANDLER gr_event_handler->on_link_click FOR v_events.
-*    SET HANDLER lcl_alv_handler=>added_function FOR v_events.
+      SET HANDLER lcl_alv_handler=>added_function FOR v_events.
 
       v_o_functions = v_o_table->get_functions( ).
       v_o_functions->set_all( ).
@@ -294,15 +338,6 @@ FORM zf_display_alv.
       MESSAGE lv_error_msg TYPE 'I' DISPLAY LIKE 'E'.
   ENDTRY.
 ENDFORM.
-*---------------------------------------------------------------------*
-*      Form  zf_fcat_config
-*---------------------------------------------------------------------*
-*      Configuração ALV
-*---------------------------------------------------------------------*
-FORM zf_fcat_config.
-  v_o_display = v_o_table->get_display_settings( ).
-  v_o_display->set_list_header( 'Relatório Pedidos Sênior x MIRO' ).
-ENDFORM.
 
 *---------------------------------------------------------------------*
 *      Form  zf_create_miro
@@ -330,12 +365,43 @@ FORM zf_create_miro USING it_rows TYPE salv_t_row.
       lo_message_handler->add_and_display_message(
       EXPORTING
         iv_type    = 'E'
-        iv_message = 'Pedido bloqueado, MIRO não pode ser gerada!!!'
+        iv_message = |Pedido { ls_selected_row-ebeln } bloqueado, MIRO não pode ser gerada!|
       CHANGING
         ct_messages = lt_messages ).
-
       RETURN.
+    ENDIF.
 
+    " Verifica se o pedido tem referência
+    IF ls_selected_row-xblnr IS INITIAL.
+      lo_message_handler->add_and_display_message(
+      EXPORTING
+        iv_type    = 'E'
+      iv_message = |Favor preencher referência para o pedido { ls_selected_row-ebeln }!|
+      CHANGING
+        ct_messages = lt_messages ).
+      RETURN.
+    ENDIF.
+
+    " Verifica se o pedido está com data de fatura
+    IF ls_selected_row-bldat IS INITIAL.
+      lo_message_handler->add_and_display_message(
+      EXPORTING
+        iv_type    = 'E'
+        iv_message = |Favor preencher data do pedido { ls_selected_row-ebeln } para gerar MIRO!|
+      CHANGING
+        ct_messages = lt_messages ).
+      RETURN.
+    ENDIF.
+
+    " Verifica se o pedido tem forma de pagamento
+    IF ls_selected_row-zlsch IS INITIAL.
+      lo_message_handler->add_and_display_message(
+      EXPORTING
+        iv_type    = 'E'
+        iv_message = |Favor preencher a forma de pagamento do pedido { ls_selected_row-ebeln }!|
+      CHANGING
+        ct_messages = lt_messages ).
+      RETURN.
     ENDIF.
 
     CLEAR: lv_invoice,
@@ -424,41 +490,120 @@ FORM zf_create_miro USING it_rows TYPE salv_t_row.
   ENDLOOP.
 ENDFORM.
 
+*---------------------------------------------------------------------*
+*      Form  z_detalhes_itens
+*---------------------------------------------------------------------*
+*      Form para chamar Pop-up de edição do Campo Editável
+*---------------------------------------------------------------------*
 FORM z_detalhes_itens.
 
-  DATA: ivals TYPE TABLE OF sval,
-        xvals TYPE sval.
+  DATA: ivals     TYPE TABLE OF sval,
+        xvals     TYPE sval,
+        lt_return TYPE TABLE OF ddshretval,
+        lv_zlsch  TYPE t042z-zlsch.
 
   CASE lv_column.
-    WHEN 'BUKRS'.
+    WHEN 'ZLSCH'.
 
-      xvals-tabname   = 'EKKO'.
-      xvals-fieldname = 'BUKRS'.
+      SELECT zlsch, text1
+      FROM t042z
+      INTO TABLE @DATA(lt_form_pag)
+      WHERE land1 = 'BR'. " Filtra apenas formas de pagamento BR
+
+      IF sy-subrc = 0.
+        CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST' " Exibe o search help
+          EXPORTING
+            retfield        = 'ZLSCH'
+            value_org       = 'S'
+            dynpprog        = sy-repid
+            dynpnr          = sy-dynnr
+            dynprofield     = 'ZLSCH'
+          TABLES
+            value_tab       = lt_form_pag
+            return_tab      = lt_return
+          EXCEPTIONS
+            parameter_error = 1
+            no_values_found = 2
+            OTHERS          = 3.
+
+        IF sy-subrc = 0.
+          DATA(ls_return) = lt_return[ 1 ].
+
+          IF sy-subrc = 0 AND ls_return-fieldval IS NOT INITIAL.
+            READ TABLE lt_alv_display ASSIGNING FIELD-SYMBOL(<f_alv>) WITH KEY ebeln = lv_ebeln.
+
+            IF sy-subrc = 0.
+              <f_alv>-zlsch = ls_return-fieldval.
+              v_o_table->refresh( ).
+            ELSE.
+              MESSAGE 'Erro ao atribuir valor ao ALV' TYPE 'E'.
+            ENDIF.
+          ELSE.
+            MESSAGE 'Nenhum valor selecionado ou campo vazio' TYPE 'I'.
+          ENDIF.
+        ELSE.
+          MESSAGE 'Erro ao exibir search help' TYPE 'E'.
+        ENDIF.
+      ELSE.
+        MESSAGE 'Nenhuma forma de pagamento encontrada' TYPE 'I'.
+      ENDIF.
+
+    WHEN 'XBLNR'.
+
+      xvals-tabname   = 'BKPF'.
+      xvals-fieldname = 'XBLNR'.
       APPEND xvals TO ivals.
 
       CALL FUNCTION 'POPUP_GET_VALUES'
         EXPORTING
-          popup_title     = 'Empresa teste edit'
+          popup_title     = 'Referência'
         TABLES
           fields          = ivals
         EXCEPTIONS
           error_in_fields = 1
           OTHERS          = 2.
 
-      READ TABLE ivals INTO xvals WITH KEY fieldname = 'BUKRS'.
+      READ TABLE ivals INTO xvals WITH KEY fieldname = 'XBLNR'.
 
-      lv_bukrs = xvals-value.
-
-      READ TABLE lt_alv_display ASSIGNING FIELD-SYMBOL(<f_alv>) WITH KEY ebeln = lv_ebeln.
+      READ TABLE lt_alv_display ASSIGNING <f_alv> WITH KEY ebeln = lv_ebeln.
 
       IF sy-subrc = 0.
-        <f_alv>-bukrs = lv_bukrs.
+        <f_alv>-xblnr = xvals-value.
 
         v_o_table->display( ).
         v_o_table->refresh( ).
       ENDIF.
 
-    WHEN OTHERS.
+    WHEN 'BLDAT'.
+
+      xvals-tabname   = 'RBKP'.
+      xvals-fieldname = 'BLDAT'.
+      APPEND xvals TO ivals.
+
+      CALL FUNCTION 'POPUP_GET_VALUES'
+        EXPORTING
+          popup_title     = 'Data da Fatura'
+        TABLES
+          fields          = ivals
+        EXCEPTIONS
+          error_in_fields = 1
+          OTHERS          = 2.
+
+      READ TABLE ivals INTO xvals WITH KEY fieldname = 'BLDAT'.
+
+      READ TABLE lt_alv_display ASSIGNING <f_alv> WITH KEY ebeln = lv_ebeln.
+
+      IF sy-subrc = 0.
+        <f_alv>-bldat = xvals-value.
+
+        v_o_table->display( ).
+        v_o_table->refresh( ).
+      ENDIF.
   ENDCASE.
 
+  CLEAR: ivals,
+         xvals,
+         lt_return,
+         ls_return,
+         lv_zlsch.
 ENDFORM.
